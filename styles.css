@@ -743,6 +743,11 @@ html{scroll-behavior:smooth}
   .shell{grid-template-columns:minmax(0,1fr)}
   body[data-view="stock"] .shell,
   body[data-view="market"] .shell{grid-template-columns:minmax(0,1fr)}
+  /* single column: page content leads, the watchlist follows underneath the market
+     home and drops out of the analysis sections instead of pinning to the top */
+  .main{order:1}
+  .sidebar{order:2}
+  body[data-view="stock"] .sidebar{display:none}
   .sidebar{position:relative;top:0;max-height:none}
   .grid-2,.grid-3{grid-template-columns:minmax(0,1fr)}
   .quote-head{grid-template-columns:1fr;text-align:left}
