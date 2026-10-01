@@ -922,8 +922,8 @@ function renderOwnership() {
 }
 
 /* ============================================================== NEWS ===== */
-/* Shared news-card markup. Mainline financial feeds lead with a thumbnail and a
-   compact source line, and tag sentiment instead of printing a blocky score. */
+/* Editorial feed: one lead story carrying the art, then ruled wire rows with a
+   source avatar, live sentiment pill and a reading-time estimate. */
 const NEWS_ICON =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
   '<path d="M4 5h13a1 1 0 0 1 1 1v11a2 2 0 0 0 2 2H5a2 2 0 0 1-2-2V6a1 1 0 0 1 1-1Z"/>' +
@@ -938,34 +938,107 @@ function newsHead(x) {
 
 function newsThumbFail(el) {
   const p = el.parentNode;
-  if (p) { p.classList.add('ph'); p.innerHTML = NEWS_ICON; }
+  if (!p) return;
+  p.classList.add('ph');
+  el.remove();
+  p.insertAdjacentHTML('afterbegin', NEWS_ICON);
 }
 
-function newsThumb(x) {
-  return '<span class="nthumb' + (x.thumb ? '' : ' ph') + '">' +
+function newsThumb(x, cls) {
+  return '<span class="nthumb' + (x.thumb ? '' : ' ph') + (cls ? ' ' + cls : '') + '">' +
     (x.thumb
       ? '<img src="' + esc(x.thumb) + '" alt="" decoding="async" referrerpolicy="no-referrer" onerror="newsThumbFail(this)">'
       : NEWS_ICON) +
-    '</span>';
+    '<span class="nscrim"></span></span>';
 }
+
+function sentKey(x) { return x.score > 0.15 ? 'p' : x.score < -0.15 ? 'n' : 'm'; }
 
 function newsChip(x) {
-  const cls = x.score > 0.15 ? 'p' : x.score < -0.15 ? 'n' : 'm';
-  const word = cls === 'p' ? 'Positive' : cls === 'n' ? 'Negative' : 'Neutral';
-  return '<span class="nchip ' + cls + '"><i></i>' + word + '</span>';
+  const k = sentKey(x);
+  const word = k === 'p' ? 'Positive' : k === 'n' ? 'Negative' : 'Neutral';
+  return '<span class="nchip ' + k + '"><i></i>' + word + '</span>';
 }
 
-function newsMeta(x, withSym) {
-  return '<div class="nmeta"><span class="nsrc">' + esc(x.src) + '</span>' +
-    '<span class="ntime">' + esc(x.time) + '</span>' +
-    (withSym ? '<span class="nsym">' + esc(state.sym) + '</span>' : '') +
-    newsChip(x) + '</div>';
+/* deterministic hue so every wire keeps its own colour identity */
+function hueOf(s) {
+  let h = 0;
+  const t = String(s || '?');
+  for (let i = 0; i < t.length; i++) h = (h * 33 + t.charCodeAt(i)) >>> 0;
+  return h % 360;
 }
+
+function newsAvatar(x) {
+  const c = String(x.src || '?').trim();
+  return '<span class="nav" style="--h:' + hueOf(c) + '">' + esc((c[0] || '?').toUpperCase()) + '</span>';
+}
+
+function newsRead(x) {
+  const w = ((x.title || '') + ' ' + (x.sum || '')).split(/\s+/).filter(Boolean).length;
+  return Math.max(1, Math.round(w / 200)) + ' min';
+}
+
+/* one line: [avatar SOURCE] .................. [time · read · sentiment] */
+function newsKicker(x) {
+  return '<div class="nkick"><span class="nwho">' + newsAvatar(x) +
+    '<span class="nsrc">' + esc(x.src) + '</span></span>' +
+    '<span class="nwhen"><span class="ntime">' + esc(x.time) + '</span>' +
+    '<span class="nsep">·</span><span class="nread">' + newsRead(x) + '</span>' +
+    newsChip(x) + '</span></div>';
+}
+
+function newsRow(x) {
+  return '<article class="news" data-sent="' + sentKey(x) + '">' + newsKicker(x) +
+    '<div class="ntitle">' + newsHead(x) + '</div></article>';
+}
+
+function newsLead(x, wide) {
+  return '<article class="news lead' + (wide ? ' w' : '') + '" data-sent="' + sentKey(x) + '">' +
+    newsThumb(x) +
+    '<div class="nbody">' + newsKicker(x) +
+      '<div class="ntitle big">' + newsHead(x) + '</div>' +
+      (x.sum ? '<div class="nsum">' + esc(x.sum) + '</div>' : '') +
+    '</div></article>';
+}
+
+function newsBar(items) {
+  const c = { all: items.length, p: 0, m: 0, n: 0 };
+  items.forEach(x => { c[sentKey(x)]++; });
+  const seg = [['all', 'All'], ['p', 'Positive'], ['m', 'Neutral'], ['n', 'Negative']]
+    .map(([k, l]) =>
+      '<button type="button" class="nb' + (k === 'all' ? ' on' : '') + '" data-f="' + k + '">' +
+      l + ' <b>' + c[k] + '</b></button>').join('');
+  return '<div class="nbar"><div class="nseg">' + seg + '</div></div>';
+}
+
+function bindNewsBar(root) {
+  const bar = root && root.querySelector('.nbar');
+  if (!bar) return;
+  $$('.nb', bar).forEach(btn => {
+    btn.onclick = () => {
+      $$('.nb', bar).forEach(o => o.classList.toggle('on', o === btn));
+      const f = btn.dataset.f;
+      let shown = 0;
+      $$('.news', root).forEach(n => {
+        const hide = f !== 'all' && n.dataset.sent !== f;
+        n.classList.toggle('hide', hide);
+        if (!hide) shown++;
+      });
+      const em = root.querySelector('.nempty');
+      if (em) em.classList.toggle('hide', shown > 0);
+    };
+  });
+}
+
+const NEWS_EMPTY =
+  '<div class="nempty hide">' +
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">' +
+  '<path d="M4 6h16M4 12h10M4 18h7"/></svg><p>No stories match this filter.</p></div>';
 
 /* whole card is the hit target, but a real link keeps its own behaviour */
 function bindCardOpens(root) {
   if (!root) return;
-  $$('.nlead,.ncard,.news', root).forEach(n => {
+  $$('.news', root).forEach(n => {
     const a = n.querySelector('a');
     if (!a) { n.style.cursor = 'default'; return; }
     n.onclick = (e) => { if (e.target.closest('a')) return; window.open(a.href, '_blank', 'noopener'); };
@@ -975,13 +1048,15 @@ function bindCardOpens(root) {
 function renderNews() {
   const P = pal();
   const items = newsItems(state.sym);
-  $('#newsList').innerHTML = items.map(x =>
-    '<article class="news">' + newsThumb(x) +
-      '<div class="nbody">' + newsMeta(x, true) +
-        '<div class="ntitle">' + newsHead(x) + '</div>' +
-        (x.sum ? '<div class="nsum">' + esc(x.sum) + '</div>' : '') +
-      '</div></article>').join('');
-  bindCardOpens($('#newsList'));
+  const root = $('#newsList');
+  root.innerHTML = newsBar(items) +
+    (items[0] ? newsLead(items[0], false) : '') +
+    '<div class="nrows">' + items.slice(1).map(newsRow).join('') + '</div>' +
+    NEWS_EMPTY;
+  bindNewsBar(root);
+  bindCardOpens(root);
+  const nsub = $('#newsSub');
+  if (nsub) nsub.textContent = items.length + ' stories · scored live';
 
   /*30-day polarity: real article scores when timestamps exist, synthetic otherwise */
   const now = Date.now();
@@ -2045,20 +2120,14 @@ function renderMarket() {
       nl.dataset.sig = sig;
       const lead = rows[0];
       const rest = rows.slice(1);
-      nl.innerHTML =
-        (lead
-          ? '<article class="nlead">' + newsThumb(lead) +
-              '<div class="nbody">' + newsMeta(lead, false) +
-                '<div class="ntitle big">' + newsHead(lead) + '</div>' +
-                (lead.sum ? '<div class="nsum">' + esc(lead.sum) + '</div>' : '') +
-              '</div></article>'
-          : '') +
-        '<div class="ngrid">' + rest.map(x =>
-          '<article class="ncard">' + newsThumb(x) +
-            '<div class="nbody">' + newsMeta(x, false) +
-              '<div class="ntitle">' + newsHead(x) + '</div>' +
-            '</div></article>').join('') + '</div>';
+      nl.innerHTML = newsBar(rows) +
+        (lead ? newsLead(lead, true) : '') +
+        '<div class="nrows two">' + rest.map(newsRow).join('') + '</div>' +
+        NEWS_EMPTY;
+      bindNewsBar(nl);
       bindCardOpens(nl);
+      const msub = $('#mktNewsSub');
+      if (msub) msub.textContent = 'Top stories · ' + rows.length + ' headlines';
     }
   }
 
