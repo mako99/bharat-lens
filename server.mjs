@@ -327,8 +327,11 @@ const RANGES = {
   "6M": { range: "6mo", interval: "1d", axis: "date" },
   YTD: { range: "ytd", interval: "1d", axis: "date" },
   "1Y": { range: "1y", interval: "1d", axis: "date" },
-  "5Y": { range: "5y", interval: "1wk", axis: "date" },
-  MAX: { range: "max", interval: "1mo", axis: "date" },
+  "5Y": { range: "5y", interval: "1d", axis: "date" },
+  /* MAX must stay daily: the client's windows count *bars* (6M = 126 bars), so
+     monthly bars would stretch a 6-month request into a decade. Yahoo downsamples
+     `range=max&interval=1d` to 1mo anyway, so MAX is expressed as explicit epochs. */
+  MAX: { range: "max", interval: "1d", axis: "date", epoch: true },
   "2Y": { range: "2y", interval: "1d", axis: "date" }, // internal: MA50/MA200 warm-up
 };
 
@@ -352,7 +355,7 @@ function trimToRange(bars, rangeKey) {
 
 async function yahooChart(symbol, rangeKey) {
   const cfg = RANGES[rangeKey] || RANGES["1M"];
-  const key = `chart:${symbol}:${cfg.range}:${cfg.interval}`;
+  const key = `chart:${symbol}:${cfg.range}:${cfg.interval}${cfg.epoch ? ":ep" : ""}`;
   const hit = cacheGet(key);
   const ttl = cfg.axis === "time" ? 45_000 : 6 * 3600_000;
   if (hit?.fresh) {
@@ -360,9 +363,12 @@ async function yahooChart(symbol, rangeKey) {
     return hit.value;
   }
   try {
+    const span = cfg.epoch
+      ? `period1=0&period2=${Math.floor(Date.now() / 1000)}&interval=${cfg.interval}`
+      : `range=${cfg.range}&interval=${cfg.interval}`;
     const path =
       `/v8/finance/chart/${encodeURIComponent(symbol)}` +
-      `?range=${cfg.range}&interval=${cfg.interval}&includePrePost=${cfg.axis === "time"}` +
+      `?${span}&includePrePost=${cfg.axis === "time"}` +
       `&events=div%2Csplit`;
     const raw = await yget(path, { retries: 2 });
     const r = raw?.chart?.result?.[0];

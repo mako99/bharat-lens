@@ -6,10 +6,12 @@
 
 /* ------------------------------------------------------------- transport -- */
 
-/* '' when this page is served by the proxy itself, absolute otherwise (file://). */
-const API_BASE = (typeof location !== 'undefined' && String(location.port) === '8790')
-  ? ''
-  : 'http://localhost:8790';
+/* '' for any http(s) origin — the page is served by the proxy itself, so
+   relative paths reach the API whether it is opened on :8790, over the LAN or
+   through a tunnel. Only file:// (no origin) needs the absolute local address. */
+const API_BASE = (typeof location !== 'undefined' && location.protocol === 'file:')
+  ? 'http://localhost:8790'
+  : '';
 
 const TTL = {
   quotes: 20e3,

@@ -150,7 +150,7 @@ try{var _t=localStorage.getItem("sl-theme");if(_t==="light"||_t==="dark"){docume
             <h3>Market News</h3>
             <span class="panel-sub">Top stories across the tape</span>
           </div>
-          <div class="news-list" id="mktNews"></div>
+          <div class="news-feed" id="mktNews"></div>
         </div>
       </section>
 
@@ -194,14 +194,14 @@ try{var _t=localStorage.getItem("sl-theme");if(_t==="light"||_t==="dark"){docume
             </div>
 
             <div class="seg" id="typeSeg">
-              <button data-type="candle" class="on" title="Candlesticks">
-                <svg viewBox="0 0 24 24" width="15" height="15"><path d="M7 4v4m0 8v4M5 8h4v8H5zM17 4v6m0 6v4M15 10h4v6h-4z" stroke="currentColor" stroke-width="1.6" fill="none"/></svg>
-              </button>
-              <button data-type="area" title="Area">
+              <button data-type="area" class="on" title="Area (default)">
                 <svg viewBox="0 0 24 24" width="15" height="15"><path d="M3 17l5-6 4 3 5-7 4 4" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 20h18" stroke="currentColor" stroke-width="1.4" opacity=".4"/></svg>
               </button>
               <button data-type="line" title="Line">
                 <svg viewBox="0 0 24 24" width="15" height="15"><path d="M3 16l5-5 4 4 5-8 4 5" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+              <button data-type="candle" title="Candlesticks">
+                <svg viewBox="0 0 24 24" width="15" height="15"><path d="M7 4v4m0 8v4M5 8h4v8H5zM17 4v6m0 6v4M15 10h4v6h-4z" stroke="currentColor" stroke-width="1.6" fill="none"/></svg>
               </button>
               <button data-type="hollow" title="Hollow candles">
                 <svg viewBox="0 0 24 24" width="15" height="15"><path d="M7 3v3m0 10v5M5 6h4v10H5zM17 4v4m0 8v4M15 8h4v8h-4z" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>

@@ -227,9 +227,26 @@ function tradingDates(n, end) {
   return out.reverse();
 }
 
+/* Ranges are chosen in *bars* (6M = 126 bars), so a feed answering with weekly or
+   monthly candles would silently stretch a 6-month request into a decade. Only
+   accept a live series whose median gap is a trading day. */
+function looksDaily(bars) {
+  if (!bars || bars.length < 3) return false;
+  const from = Math.max(1, Math.floor(bars.length / 2) - 40);
+  const to = Math.min(bars.length - 1, from + 80);
+  const gaps = [];
+  for (let i = from; i <= to; i++) {
+    const d = (bars[i].t - bars[i - 1].t) / 86400000;
+    if (d > 0) gaps.push(d);
+  }
+  if (!gaps.length) return false;
+  gaps.sort((a, b) => a - b);
+  return gaps[Math.floor(gaps.length / 2)] <= 4;
+}
+
 function genDaily(sym) {
   const live = LIVE.daily[sym];
-  if (live && live.length > 120) return live;
+  if (live && live.length > 120 && looksDaily(live)) return live;
   if (_dailyCache[sym]) return _dailyCache[sym];
   const lm = liveMeta(sym);
   const meta = (lm && lm.price > 0) ? lm : UNIVERSE.NIFTY;
@@ -331,7 +348,23 @@ function seriesFor(sym, tf) {
   if (tf === 'MAX') return aggregate(daily, 21);
   return daily;
 }
-const TF_DEFAULT = { '1D': 78, '5D': 130, '1M': 22, '6M': 126, 'YTD': 90, '1Y': 252, '5Y': 260, 'MAX': 74 };
+const TF_DEFAULT = { '1D': 78, '5D': 130, '1M': 22, '6M': 126, 'YTD': 90, '1Y': 252, '5Y': 260, 'MAX': 100000 };
+
+/* Bars to reveal for a timeframe. Windows are counted in *bars*, so the series has
+   to be daily-cadence for 6M/1Y/… to mean what the label says (see looksDaily).
+   YTD is calendar-based rather than a fixed count. */
+function tfCount(tf, data) {
+  if (tf === 'YTD' && data && data.length) {
+    const y = new Date().getFullYear();
+    let n = 0;
+    for (let i = data.length - 1; i >= 0; i--) {
+      if (new Date(data[i].t).getFullYear() === y) n++;
+      else break;
+    }
+    if (n > 3) return n;
+  }
+  return TF_DEFAULT[tf] || 60;
+}
 
 /* ------------------------------------------------------------ indicators - */
 function sma(src, p) {
@@ -557,7 +590,7 @@ function fundamentals(sym) {
 const state = {
   sym: 'RELIANCE',
   tf: '1M',
-  type: 'candle',
+  type: 'area',
   log: false,
   overlays: { sma20: true, sma50: true, ema120: false, bb: false, vwap: false, pivot: false },
   panes: { vol: true, rsi: true, macd: true, stoch: false, atr: false },

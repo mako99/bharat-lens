@@ -922,25 +922,66 @@ function renderOwnership() {
 }
 
 /* ============================================================== NEWS ===== */
-function renderNews() {
-  const P = pal();
-  const items = newsItems(state.sym);
-  $('#newsList').innerHTML = items.map(x => {
-    const cls = x.score > 0.15 ? 'p' : x.score < -0.15 ? 'n' : 'm';
-    const title = esc(x.title);
-    const head = x.link
-      ? '<a href="' + esc(x.link) + '" target="_blank" rel="noopener">' + title + '</a>'
-      : title;
-    return '<article class="news"><div class="score ' + cls + '">' + (x.score > 0 ? '+' : '') + nf(x.score * 100, 0) +
-      '</div><div><div class="hd">' + head + '</div>' +
-      '<div class="mt"><span>' + x.src + '</span><span>' + x.time + '</span><span>' + state.sym + '</span></div>' +
-      '<div class="sum">' + esc(x.sum) + '</div></div></article>';
-  }).join('');
-  $$('.news', $('#newsList')).forEach(n => {
+/* Shared news-card markup. Mainline financial feeds lead with a thumbnail and a
+   compact source line, and tag sentiment instead of printing a blocky score. */
+const NEWS_ICON =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<path d="M4 5h13a1 1 0 0 1 1 1v11a2 2 0 0 0 2 2H5a2 2 0 0 1-2-2V6a1 1 0 0 1 1-1Z"/>' +
+  '<path d="M18 8h2a1 1 0 0 1 1 1v9a2 2 0 0 1-2 2"/><path d="M7 9h7M7 13h7M7 17h4"/></svg>';
+
+function newsHead(x) {
+  const t = esc(x.title);
+  return x.link
+    ? '<a href="' + esc(x.link) + '" target="_blank" rel="noopener">' + t + '</a>'
+    : t;
+}
+
+function newsThumbFail(el) {
+  const p = el.parentNode;
+  if (p) { p.classList.add('ph'); p.innerHTML = NEWS_ICON; }
+}
+
+function newsThumb(x) {
+  return '<span class="nthumb' + (x.thumb ? '' : ' ph') + '">' +
+    (x.thumb
+      ? '<img src="' + esc(x.thumb) + '" alt="" decoding="async" referrerpolicy="no-referrer" onerror="newsThumbFail(this)">'
+      : NEWS_ICON) +
+    '</span>';
+}
+
+function newsChip(x) {
+  const cls = x.score > 0.15 ? 'p' : x.score < -0.15 ? 'n' : 'm';
+  const word = cls === 'p' ? 'Positive' : cls === 'n' ? 'Negative' : 'Neutral';
+  return '<span class="nchip ' + cls + '"><i></i>' + word + '</span>';
+}
+
+function newsMeta(x, withSym) {
+  return '<div class="nmeta"><span class="nsrc">' + esc(x.src) + '</span>' +
+    '<span class="ntime">' + esc(x.time) + '</span>' +
+    (withSym ? '<span class="nsym">' + esc(state.sym) + '</span>' : '') +
+    newsChip(x) + '</div>';
+}
+
+/* whole card is the hit target, but a real link keeps its own behaviour */
+function bindCardOpens(root) {
+  if (!root) return;
+  $$('.nlead,.ncard,.news', root).forEach(n => {
     const a = n.querySelector('a');
     if (!a) { n.style.cursor = 'default'; return; }
     n.onclick = (e) => { if (e.target.closest('a')) return; window.open(a.href, '_blank', 'noopener'); };
   });
+}
+
+function renderNews() {
+  const P = pal();
+  const items = newsItems(state.sym);
+  $('#newsList').innerHTML = items.map(x =>
+    '<article class="news">' + newsThumb(x) +
+      '<div class="nbody">' + newsMeta(x, true) +
+        '<div class="ntitle">' + newsHead(x) + '</div>' +
+        (x.sum ? '<div class="nsum">' + esc(x.sum) + '</div>' : '') +
+      '</div></article>').join('');
+  bindCardOpens($('#newsList'));
 
   /*30-day polarity: real article scores when timestamps exist, synthetic otherwise */
   const now = Date.now();
@@ -1134,8 +1175,8 @@ function setTF(tf) {
   $$('#tfSeg button').forEach(b => b.classList.toggle('on', b.dataset.tf === tf));
   const apply = () => {
     const data = bars();
-    const want = Math.min(TF_DEFAULT[state.tf] || 60, data.length);
-    state.view = { start: Math.max(0, data.length - want), count: want };
+    const want = Math.min(tfCount(state.tf, data), data.length);
+    state.view = { start: Math.max(0, data.length - want), count: want, n: data.length };
     state.hover = null;
     drawMain();
   };
@@ -1147,6 +1188,19 @@ function setTF(tf) {
       apply();
     });
   }
+}
+
+/* The window is anchored to the tail of the series and remembers how many bars it
+   was computed for. When a live feed lands and changes that count the anchor must
+   be recomputed, otherwise the chart keeps pointing at stale indices. */
+function reanchorView() {
+  const data = bars();
+  if (!data.length || (state.view.n != null && state.view.n === data.length)) return false;
+  const want = Math.min(tfCount(state.tf, data), data.length);
+  state.view = { start: Math.max(0, data.length - want), count: want, n: data.length };
+  state.hover = null;
+  drawMain();
+  return true;
 }
 
 function redrawAll() {
@@ -1263,13 +1317,20 @@ function bindChart() {
   wrap.addEventListener('mouseleave', () => { state.hover = null; drawMain(); });
 }
 
+const CHART_TYPES = ['area', 'line', 'candle', 'hollow'];
+
+function setType(t) {
+  state.type = CHART_TYPES.indexOf(t) >= 0 ? t : 'area';
+  $$('#typeSeg button').forEach(x => x.classList.toggle('on', x.dataset.type === state.type));
+  try { localStorage.setItem('sl-type', state.type); } catch (e) {}
+}
+
 function bindToolbar() {
   $$('#tfSeg button').forEach(b => { b.onclick = () => setTF(b.dataset.tf); });
 
   $$('#typeSeg button').forEach(b => {
     b.onclick = () => {
-      state.type = b.dataset.type;
-      $$('#typeSeg button').forEach(x => x.classList.toggle('on', x === b));
+      setType(b.dataset.type);
       drawMain();
     };
   });
@@ -1517,8 +1578,9 @@ function mapNews(payload) {
     score: scoreHeadline(n.title),
     src: n.publisher || (payload.source === 'google-news' ? 'Google News' : 'Wire'),
     time: relTime(n.time),
-    sum: n.summary || (n.related && n.related.length ? 'Related: ' + n.related.slice(0, 4).join(', ') : ''),
+    sum: n.summary || '',
     link: n.link,
+    thumb: n.thumbnail || null,
     ts: n.time || null
   })).filter(x => x.title);
 }
@@ -1975,14 +2037,29 @@ function renderMarket() {
   const nl = $('#mktNews');
   if (nl) {
     const items = LIVE.marketNews && LIVE.marketNews.length ? LIVE.marketNews : newsItems('NIFTY').slice(0, 8);
-    nl.innerHTML = items.slice(0, 10).map(x => {
-      const cls = x.score > 0.15 ? 'p' : x.score < -0.15 ? 'n' : 'm';
-      const body = '<div class="score ' + cls + '">' + (x.score > 0 ? '+' : '') + nf(x.score * 100, 0) + '</div>' +
-        '<div><div class="hd">' + (x.link ? '<a href="' + esc(x.link) + '" target="_blank" rel="noopener">' + esc(x.title) + '</a>' : esc(x.title)) + '</div>' +
-        '<div class="mt"><span>' + esc(x.src) + '</span><span>' + esc(x.time) + '</span></div>' +
-        (x.sum ? '<div class="sum">' + esc(x.sum) + '</div>' : '') + '</div>';
-      return '<article class="news">' + body + '</article>';
-    }).join('');
+    const rows = items.slice(0, 9);
+    /* quote refreshes re-run renderMarket every minute — only touch the feed when
+       the headlines actually change, otherwise the stagger animation replays */
+    const sig = rows.map(x => x.id || x.title).join('|');
+    if (nl.dataset.sig !== sig) {
+      nl.dataset.sig = sig;
+      const lead = rows[0];
+      const rest = rows.slice(1);
+      nl.innerHTML =
+        (lead
+          ? '<article class="nlead">' + newsThumb(lead) +
+              '<div class="nbody">' + newsMeta(lead, false) +
+                '<div class="ntitle big">' + newsHead(lead) + '</div>' +
+                (lead.sum ? '<div class="nsum">' + esc(lead.sum) + '</div>' : '') +
+              '</div></article>'
+          : '') +
+        '<div class="ngrid">' + rest.map(x =>
+          '<article class="ncard">' + newsThumb(x) +
+            '<div class="nbody">' + newsMeta(x, false) +
+              '<div class="ntitle">' + newsHead(x) + '</div>' +
+            '</div></article>').join('') + '</div>';
+      bindCardOpens(nl);
+    }
   }
 
   /* ---- badges ---- */
@@ -2030,6 +2107,10 @@ function init() {
     const saved = localStorage.getItem('sl-theme');
     if (saved) { state.theme = saved; document.documentElement.setAttribute('data-theme', saved); }
   } catch (e) {}
+  try {
+    const savedType = localStorage.getItem('sl-type');
+    if (savedType) setType(savedType);
+  } catch (e) {}
 
   bindChart();
   bindToolbar();
@@ -2047,6 +2128,7 @@ function init() {
   loadWatchQuotes();
   loadSymbol(state.sym).then(() => {
     /* fundamentals/profile/quotes land async — repaint the visible page once ready */
+    reanchorView();
     renderQuote();
     renderStats();
     if (state.page === 'market') return;
@@ -2058,7 +2140,10 @@ function init() {
 
   /* keep the tape fresh without hammering the proxy */
   setInterval(loadWatchQuotes, 60000);
-  setInterval(() => { if (state.page === 'market') loadMarket(); else loadSymbol(state.sym); }, 180000);
+  setInterval(() => {
+    if (state.page === 'market') { loadMarket(); return; }
+    loadSymbol(state.sym).then(reanchorView);
+  }, 180000);
 
   setTimeout(() => { drawMain(); renderRail(); }, 60);
   document.fonts && document.fonts.ready.then(() => { drawMain(); renderPage(state.page); renderRail(); });

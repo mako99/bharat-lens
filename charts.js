@@ -23,6 +23,15 @@ function strokeSeries(ctx, arr, start, end, xAt, yAt, color, lw) {
   ctx.stroke();
 }
 
+/* Session previous close from the quote feed — drives the dotted reference line. */
+function prevClosePx() {
+  try {
+    const q = LIVE.quotes[state.sym];
+    if (q && q.prevClose != null && isFinite(+q.prevClose)) return +q.prevClose;
+  } catch (e) {}
+  return null;
+}
+
 function chartLayout(h) {
   const paneKeys = Object.keys(state.panes).filter(k => state.panes[k]);
   const panesH = paneKeys.reduce((s, k) => s + PANE_H[k] + 6, 0);
@@ -217,6 +226,7 @@ function drawMain() {
   const xAt = i => PAD.l + (i - start + 0.5) * bw;
 
   const closes = b.map(x => x.c);
+  const pc = prevClosePx();
   const ov = {
     sma20: state.overlays.sma20 ? sma(closes, 20) : null,
     sma50: state.overlays.sma50 ? sma(closes, 50) : null,
@@ -240,6 +250,8 @@ function drawMain() {
     }
   }
   if (!isFinite(lo) || !isFinite(hi)) return;
+  /* keep the dotted "previous close" line inside the visible range */
+  if (pc != null) { if (pc < lo) lo = pc; if (pc > hi) hi = pc; }
   const pad = (hi - lo) * 0.06 || 1;
   const pMin = lo - pad, pMax = hi + pad;
   const yAt = (state.log)
@@ -298,6 +310,8 @@ function drawMain() {
   }
 
   /* ---- price ---- */
+  const trendUp = b[end - 1].c >= b[start].c;
+  const trendCol = trendUp ? P.up : P.down;
   if (state.type === 'candle' || state.type === 'hollow') {
     const bodyW = Math.max(1, Math.min(bw * 0.66, 18));
     ctx.lineWidth = Math.max(1, Math.min(1.6, bw * 0.14));
@@ -329,7 +343,7 @@ function drawMain() {
       ctx.lineTo(xAt(end - 1), PAD.t + layout.priceH);
       ctx.lineTo(xAt(start), PAD.t + layout.priceH);
       ctx.closePath();
-      const base = b[end - 1].c >= b[start].c ? P.up : P.down;
+      const base = trendCol;
       const grad = ctx.createLinearGradient(0, PAD.t, 0, PAD.t + layout.priceH);
       grad.addColorStop(0, hexA(base, 0.42));
       grad.addColorStop(1, hexA(base, 0.01));
@@ -341,7 +355,7 @@ function drawMain() {
       const x = xAt(i), y = yAt(b[i].c);
       if (i === start) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
-    ctx.strokeStyle = b[end - 1].c >= b[start].c ? P.up : P.down;
+    ctx.strokeStyle = trendCol;
     ctx.lineWidth = 1.9;
     ctx.lineJoin = 'round';
     ctx.stroke();
@@ -398,6 +412,50 @@ function drawMain() {
   ctx.textAlign = 'left';
   ctx.font = '600 10.5px "JetBrains Mono", monospace';
   ctx.fillText(fmtPrice(last.c), right + 7, ly + 0.5);
+
+  /* ---- previous close reference (drawn over the fill so it stays legible) ---- */
+  if (pc != null) {
+    const yPc = Math.round(yAt(pc)) + 0.5;
+    ctx.save();
+    ctx.setLineDash([3, 4]);
+    ctx.strokeStyle = hexA(P.txt3, 0.95);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(PAD.l, yPc);
+    ctx.lineTo(right, yPc);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /* ---- latest point marker ---- */
+  const lineish = state.type === 'area' || state.type === 'line';
+  if (lineish) {
+    const lx = xAt(end - 1);
+    ctx.save();
+    ctx.setLineDash([3, 4]);
+    ctx.strokeStyle = hexA(P.txt3, 0.75);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(Math.round(lx) + 0.5, PAD.t);
+    ctx.lineTo(Math.round(lx) + 0.5, h - PAD.b);
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.beginPath(); ctx.arc(lx, ly, 8, 0, Math.PI * 2);
+    ctx.fillStyle = hexA(trendCol, 0.18);
+    ctx.fill();
+    ctx.beginPath(); ctx.arc(lx, ly, 3.5, 0, Math.PI * 2);
+    ctx.fillStyle = trendCol;
+    ctx.fill();
+  }
+  if (pc != null) {
+    const txt = 'Previous close ' + fmtPrice(pc);
+    ctx.font = '600 10px "JetBrains Mono", monospace';
+    ctx.textAlign = 'right';
+    ctx.fillStyle = P.txt2;
+    const yPc = yAt(pc);
+    ctx.fillText(txt, right - 8, (yPc - 15 < PAD.t) ? yPc + 12 : yPc - 8);
+  }
 
   /* ---- indicator panes ---- */
   for (const pane of layout.panes) {
